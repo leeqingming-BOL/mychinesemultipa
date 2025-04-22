@@ -1,3 +1,9 @@
 # 忽略环境配置文件
 env/
 .env
+
+# Python 虚拟环境
+venv/
+env/
+*.egg-info/
+*.egg

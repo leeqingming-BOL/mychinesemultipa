@@ -8,6 +8,7 @@ pandas==1.5.2
 panphon==0.20.0
 pyarrow>=8.0.0
 pydub==0.25.1
+pypinyin==0.48.0
 romkan==0.2.1
 torch>=2.0.1
 torchaudio>=2.0.1

@@ -1,4 +1,4 @@
-from datasets import load_dataset, load_metric, Audio, concatenate_datasets, Dataset
+from datasets import load_dataset, load_metric, Audio, Dataset
 from transformers import Wav2Vec2CTCTokenizer, Wav2Vec2FeatureExtractor, Wav2Vec2Processor, Wav2Vec2ForCTC, TrainingArguments, Trainer
 import json
 import torch
@@ -13,8 +13,7 @@ import multiprocess
 from data_utils import filter_low_quality, downsampling
 
 def extract_all_chars_ipa(batch: dict) -> dict:
-    # Change this function later at some point to create vocabulary based on
-    # phonemes, not on characters
+    # 创建基于IPA音素的词汇表
     all_text = " ".join(batch["ipa"])
     vocab = list(set(all_text))
     return {"vocab": [vocab], "all_text": [all_text]}
@@ -91,263 +90,118 @@ class DataCollatorCTCWithPadding:
         return batch
 
 def remove_long_data(dataset, max_seconds=6):
-    # convert pyarrow table to pandas
+    # 移除超过指定长度的音频数据
     dftest = dataset.to_pandas()
-    # find out length of input_values
     dftest['len'] = dftest['input_values'].apply(len)
-    # for wav2vec training we already resampled to 16khz
-    # remove data that is longer than max_seconds (6 seconds ideal)
+    # 已重采样到16khz，移除大于max_seconds的数据
     maxLength = max_seconds * 16000 
     dftest = dftest[dftest['len'] < maxLength]
     dftest = dftest.drop('len', 1)
-    # convert back to pyarrow table to use in trainer
     dataset = dataset.from_pandas(dftest)
-    # directly remove do not wait for gc
     del dftest
     return dataset
 
-def concatenate_common_voice(datasetlist: list):
-    """
-    Concatenate more than one datasets from Common Voice.
-    Also consider using datasets.interleave_datasets(datasets: List[DatasetType]
-    so that the new dataset is constructed by cycling between each source to get the examples.
-    """
-    init_data = datasetlist[0]
-    for d in datasetlist:
-        assert d.features.type == init_data.features.type
-    concatenated = concatenate_datasets(datasetlist)
-    return concatenated
-
 def remove_space(batch: dict) -> dict:
+    # 移除IPA中的空格
     ipa = batch["ipa"]
     ipa = ipa.split()
     ipa = "".join(ipa)
     batch["ipa"] = ipa
     return batch
 
-def dataload_test(train_data, train_ipa, valid_data, valid_ipa):
-    assert len(train_data) == len(train_ipa), print("Length of train_data and train_ipa does not match")
-    assert len(valid_data) == len(valid_ipa), print("Length of valid_data and valid_ipa does not match")
-    if l == "en":
-        for j in range(len(train_data)):
-            filename = train_data[j]["file"]
-            ipa_filename = train_ipa[j]["file"]
-            assert filename == ipa_filename
-        for j in range(len(valid_ipa)):
-            filename = valid_data[j]["file"]
-            ipa_filename = valid_ipa[j]["file"]
-            assert filename == ipa_filename
-    else:
-        for j in range(len(train_data)):
-            filename = train_data[j]["path"].split("/")[-1]
-            ipa_filename = train_ipa[j]["path"].split("/")[-1]
-            assert filename == ipa_filename
-        for j in range(len(valid_data)):
-            filename = valid_data[j]["path"].split("/")[-1]
-            ipa_filename = valid_ipa[j]["path"].split("/")[-1]
-            assert filename == ipa_filename
-
 if __name__ == "__main__":
-    # Arguments
-    parser = argparse.ArgumentParser(description="Specify languages to use and options for each language")
+    # 简化的命令行参数
+    parser = argparse.ArgumentParser(description="中文语音到IPA转录训练")
 
-    parser.add_argument("-l", "--languages", nargs="*", type=str, required=True,
-                        help="Specify language code (split by space). Typically ISO639-1, or ISO639-2 if not found in ISO639-1.")
-    parser.add_argument("-tr", "--train_samples", nargs="*", type=int,
-                        help="Specify the number of samples to be used as the training data for each language." \
-                        "For example, if you want to use 1000, 2000, 3000 training samples for Japanese, Polish," \
-                        "and Maltese, then specify as -l ja pl mt -tr 1000 2000 3000." \
-                        "You can type an irrationally large number to pick up the maximum value.")
-    parser.add_argument("-te", "--test_samples", nargs="*", type=int,
-                        help="Specify the number of samples to be used as the test data for each language." \
-                        "For example, if you want to use 1000, 2000, 3000 test samples for Japanese, Polish," \
-                        "and Maltese, then specify as -l ja pl mt -tr 1000 2000 3000." \
-                        "You can type an irrationally large number to pick up the maximum value.")
-    parser.add_argument("-qf", "--quality_filter", nargs="*", type=bool, default=True,
-                        help="Specify if you want to remove low quality audio (at least having 1 down vote) from the dataset." \
-                        "True if you want to, False if you do not want to.")
-    parser.add_argument("-a", "--additional_data", nargs=1, type=bool, default=False, 
-                        help="Specify if you want to use additional data fetched from Forvo.")
+    parser.add_argument("-tr", "--train_samples", type=int, default=1000,
+                        help="指定用于训练的样本数量")
+    parser.add_argument("-te", "--test_samples", type=int, default=200,
+                        help="指定用于测试的样本数量")
+    parser.add_argument("-qf", "--quality_filter", type=bool, default=True,
+                        help="是否过滤质量低的音频(至少有1个负面评价)")
     parser.add_argument("-s", "--suffix", type=str, default="",
-                        help="Specify a suffix to identify your training. This suffix will be added to the checkpoint file directory.")
+                        help="模型名称后缀，用于标识不同的训练版本")
     parser.add_argument("-ns", "--no_space", type=bool, default=False,
-                        help="Set True if you want to remove spaces from the training and test data.")
-    parser.add_argument("-v", "--vocab_file", type=str,
-                        help="Specify the vocab file name to be created")
+                        help="设置为True以从训练和测试数据中删除空格")
+    parser.add_argument("-v", "--vocab_file", type=str, default="vocab_zh.json",
+                        help="指定要创建的词汇文件名")
     parser.add_argument("-dd", "--data_dir", type=str, default="data_new/",
-                        help="Specify the directory path for the training/validation data files." \
-                        "Default is set to `data_new/`, which stores the data from the as-of-now newest" \
-                        "`mozilla-foundation/common_voice_11_0`.")
+                        help="指定训练/验证数据文件的目录路径")
     parser.add_argument("-ds", "--dataset", type=str, default="mozilla-foundation/common_voice_11_0",
-                        help="Specify the dataset name. Default is set to" \
-                        "`mozilla-foundation/common_voice_11_0`.")
+                        help="指定数据集名称")
     parser.add_argument("-e", "--num_train_epochs", type=int, default=30,
-                        help="Specify the number of train epochs. By default it's set to 30.")
+                        help="指定训练轮数，默认为30")
     parser.add_argument("--num_proc", type=int, default=8,
-                        help="Specify the number of CPUs for preprocessing. Default set to 24.")
+                        help="指定预处理使用的CPU数量，默认为8")
     args = parser.parse_args()
-    lgx = args.languages
     suffix = args.suffix
     
-    assert len(args.train_samples) <= len(lgx), "`train_samples` argument is longer than the number of languages"
-    assert len(args.test_samples) <= len(lgx), "`test_samples` argument is longer than the number of languages"
-    assert len(args.quality_filter) <= len(lgx), "`quality_filter` argument is longer than the number of languages"
-
-    if args.additional_data:
-        from add_forvo import add_language
-    
-    train_list = []
-    valid_list = []
-    # Data loading
-    stats_file = "stats_train_valid_{}.txt".format(suffix)
+    # 加载中文数据
+    print("加载中文数据...")
+    stats_file = "stats_train_valid_zh_{}.txt".format(suffix)
     with open(stats_file, "w") as f:
         f.write("lang train valid\n")
-    for i, l in enumerate(lgx):
-        train_sample = args.train_samples[i]
-        test_sample = args.test_samples[i]
-        q_filter = args.quality_filter[i]
-        if l == "en":
-            q_filter = False
-
-        # Get preprocessed training dataset with IPA
-        train_ipa = load_dataset("json",
-                                 data_files="{}{}_train.json".format(args.data_dir, l),
-                                 split="train")
-        valid_ipa = load_dataset("json",
-                                 data_files="{}{}_valid.json".format(args.data_dir, l),
-                                 split="train")
-        if l == "en":
-            # Librispeech's file name column is "file"
-            train_ipa = train_ipa.sort("file")
-            valid_ipa = valid_ipa.sort("file")
-
-            # Get raw training dataset
-            train_data = load_dataset("librispeech_asr",
-                                      split="train.clean.100",
-                                      num_proc=args.num_proc)
-            train_data = train_data.sort("file")
-            train_data = train_data.rename_column("text", "sentence")
-
-            # Get raw validation dataset
-            valid_data = load_dataset("librispeech_asr",
-                                      split="validation.clean",
-                                      num_proc=args.num_proc)
-            valid_data = valid_data.sort("file")
-            valid_data = valid_data.rename_column("text", "sentence")
-        else:
-            train_ipa = train_ipa.sort("path")
-
-            # Get raw training dataset
-            train_data = load_dataset(args.dataset,
-                                      l,
-                                      split="train",
-                                      num_proc=args.num_proc)
-            train_data = train_data.sort("path")
-
-            # Get raw validation dataset from common_voice_11_0
-            valid_data = load_dataset(args.dataset,
-                                     l,
-                                     split="validation",
-                                     num_proc=args.num_proc)
-            valid_data = valid_data.sort("path")
-        
-        assert train_data[0]["sentence"] == train_ipa[0]["sentence"], (train_data[0]["sentence"], train_ipa[0]["sentence"])
-        assert valid_data[0]["sentence"] == valid_ipa[0]["sentence"], (valid_data[0]["sentence"], valid_ipa[0]["sentence"])
-
-        # Remove Tamil sentences containing "ச"
-        if l == "ta":
-            train_data = train_data.filter(lambda batch: "ச" not in batch["sentence"])
-            valid_data = valid_data.filter(lambda batch: "ச" not in batch["sentence"])
-
-        # tests
-        dataload_test(train_data, train_ipa, valid_data, valid_ipa)
-
-        train_ipa = [train_ipa[i]["ipa"] for i in range(len(train_ipa))]
-        valid_ipa = [valid_ipa[i]["ipa"] for i in range(len(valid_ipa))]
-
-        # Combine the IPA column
-        train_data = train_data.add_column("ipa", train_ipa)
-        valid_data = valid_data.add_column("ipa", valid_ipa)
-        if l == "en":
-            train_data = train_data.rename_column("file", "path")
-            valid_data = valid_data.rename_column("file", "path")
-
-        if q_filter:
-            train_data = filter_low_quality(train_data)
-            valid_data = filter_low_quality(valid_data)
-
-        # Clipping to the specified sample size using datasets's Dataset.select()
-        train_limit = min(train_sample, len(train_data))
-        valid_limit = min(valid_sample, len(valid_data))
-        train_data = train_data.select(range(train_limit))
-        valid_data = valid_data.select(range(valid_limit))
-        
-        train_list.append(train_data)
-        valid_list.append(valid_data)
-
-        with open(stats_file, "a") as f:
-            f.write(l + " " + str(len(train_data)) + " " + str(len(valid_data))  + "\n")
     
-    # Concatenate the languages
-    print("Concatenating datasets for each language...")
-    common_voice_train = concatenate_common_voice(train_list)
-    common_voice_valid = concatenate_common_voice(valid_list)
-    print("Concatenation done")
-
-    if args.additional_data:
-        print("Concatenating the additional data from Forvo...")
-        new_ds = add_language() # -> dict
-        new_ds = new_ds.train_test_split(test_size=0.2)
-        common_voice_train = concatenate_datasets([common_voice_train, new_ds["train"]])
-        common_voice_valid = concatenate_datasets([common_voice_valid, new_ds["test"]])
-        print("Concatenated additional data from Forvo")
-
-    # Remove unnecessary columns
-    print("Removing unnecessary columns...")
-    common_voice_train = common_voice_train.remove_columns([
+    # 直接从Preprocessors获取中文数据
+    from data_utils import Preprocessors
+    train, valid = Preprocessors.chinese(args.train_samples, args.test_samples, args.quality_filter)
+    
+    # 转换为audio格式
+    train = train.cast_column("audio", Audio())
+    valid = valid.cast_column("audio", Audio())
+    
+    print("中文训练样本数量: {}".format(len(train)))
+    print("中文验证样本数量: {}".format(len(valid)))
+    
+    with open(stats_file, "a") as f:
+        f.write("zh " + str(len(train)) + " " + str(len(valid)) + "\n")
+    
+    # 移除不必要的列
+    print("移除不必要的列...")
+    train = train.remove_columns([
         "accent", "age", "client_id", "down_votes", "gender", "locale", "segment", "up_votes",
         "speaker_id", "chapter_id", "id" #for librispeech
         ])
-    common_voice_valid = common_voice_valid.remove_columns([
-        "accent", "age", "client_id", "down_votes", "gender", "locale",	"segment", "up_votes",
+    valid = valid.remove_columns([
+        "accent", "age", "client_id", "down_votes", "gender", "locale", "segment", "up_votes",
         "speaker_id", "chapter_id", "id" #for librispeech
         ])
-    print("Unnecessary columns removed. Data preview:")
-    print(common_voice_train[0])
-    assert common_voice_train.features.type == common_voice_test.features.type
-
-    # Remove spaces if specified
+    print("不必要的列已移除。数据预览:")
+    print(train[0])
+    
+    # 如果指定，则移除空格
     if args.no_space:
-        common_voice_train = common_voice_train.map(remove_space)
-        common_voice_valid = common_voice_valid.map(remove_space)
-    assert " " not in common_voice_train[0]["ipa"], print("Apparently space removal did not work correctly")
-        
-    # Shuffle the dataset
-    print("Shuffling the dataset...")
-    common_voice_train = common_voice_train.shuffle(seed=42)
-    common_voice_valid = common_voice_valid.shuffle(seed=35)
-    print("Shuffling done")
+        print("移除空格...")
+        train = train.map(remove_space)
+        valid = valid.map(remove_space)
+        print("完成空格移除")
+    
+    # 打乱数据集
+    print("打乱数据集...")
+    train = train.shuffle(seed=42)
+    valid = valid.shuffle(seed=35)
+    print("数据集已打乱")
 
-    # Preprocessing 
-    print("Creating vocabulary...")
-    vocab_train_ipa = common_voice_train.map(
+    # 创建词汇表
+    print("创建词汇表...")
+    vocab_train_ipa = train.map(
         extract_all_chars_ipa,
         batched=True,
         batch_size=-1,
         keep_in_memory=True,
-        remove_columns=common_voice_train.column_names
+        remove_columns=train.column_names
     )
-    vocab_valid_ipa = common_voice_test.map(
+    vocab_valid_ipa = valid.map(
         extract_all_chars_ipa,
         batched=True,
         batch_size=-1,
         keep_in_memory=True,
-        remove_columns=common_voice_train.column_names
+        remove_columns=valid.column_names
     )
     vocab_list_ipa = list(
         set(vocab_train_ipa["vocab"][0]) | set(vocab_valid_ipa["vocab"][0])
     )
-    # add multiletter IPAs and other IPAs
+    # 添加多字母IPAs和其他IPAs
     with open("full_vocab_ipa.txt", "r") as f:
         lines = f.readlines()
         ipa_all = set([l.strip() for l in lines])
@@ -355,80 +209,79 @@ if __name__ == "__main__":
     vocab_list_ipa = list(vocab_list_ipa)
     vocab_dict_ipa = {v: k for k, v in enumerate(vocab_list_ipa)}
 
-    print("Vocab created. Details:")
-    print("vocab_dict_ipa: {}".format(len(vocab_dict_ipa)))
+    print("词汇表已创建。详情:")
+    print("vocab_dict_ipa大小: {}".format(len(vocab_dict_ipa)))
 
-    # Preprocessing necessary for CTC
-    # Add [UNK], [PAD]
-    print("Adding [UNK] and [PAD]...")
+    # 添加[UNK], [PAD]
+    print("添加[UNK]和[PAD]...")
     vocab_dict_ipa["[UNK]"] = len(vocab_dict_ipa)
     vocab_dict_ipa["[PAD]"] = len(vocab_dict_ipa)
-    print("[UNK] and [PAD] added")
+    print("[UNK]和[PAD]已添加")
 
-    print("Writing vocab json files...")
-    # Don't forget to change the file name when you use different languages,
-    # otherwise the vocab file will be lost
-    # filename = "vocab_ipa_{}.json".format("".join(lgx))
+    # 写入词汇json文件
+    print("写入词汇json文件...")
     with open(args.vocab_file, 'w') as vocab_file_ipa:
         json.dump(vocab_dict_ipa, vocab_file_ipa)
-    print("Vocab json files created")
+    print("词汇json文件已创建")
 
-    # Create Tokenizers
-    print("Creating Tokenizers...")
-    # Be careful to load the correct vocab file.
+    # 创建分词器
+    print("创建分词器...")
     tokenizer_ipa = Wav2Vec2CTCTokenizer("./{}".format(args.vocab_file),
                                          unk_token="[UNK]",
                                          pad_token="[PAD]",
                                          word_delimiter_token="|")
-    print("Tokenizers created") 
+    print("分词器已创建") 
 
-    # Create a Feature Extractor
-    print("Creating Feature Extractor...")
+    # 创建特征提取器
+    print("创建特征提取器...")
     feature_extractor = Wav2Vec2FeatureExtractor(feature_size=1,
-                                                 sampling_rate=16_000,
-                                                 padding_value=0.0,
-                                                 do_normalize=True,
-                                                 return_attention_mask=True)
-    print("Feature Extractor created") 
+                                               sampling_rate=16_000,
+                                               padding_value=0.0,
+                                               do_normalize=True,
+                                               return_attention_mask=True)
+    print("特征提取器已创建") 
 
-    # Define Processors
-    print("creating Processors...")
+    # 定义处理器
+    print("创建处理器...")
     processor_ipa = Wav2Vec2Processor(feature_extractor=feature_extractor,
-                                      tokenizer=tokenizer_ipa)
-    print("Processors created") 
+                                    tokenizer=tokenizer_ipa)
+    print("处理器已创建") 
 
-    # Set the sampling rate to 16,000Hz
-    print("Adjusting the sampling rate to 16,000Hz...")
-    common_voice_train = common_voice_train.cast_column("audio", Audio(sampling_rate=16_000))
-    common_voice_valid = common_voice_valid.cast_column("audio", Audio(sampling_rate=16_000))
-    print("Sampling rate adjustment done")
+    # 设置采样率为16,000Hz
+    print("调整采样率为16,000Hz...")
+    train = train.cast_column("audio", Audio(sampling_rate=16_000))
+    valid = valid.cast_column("audio", Audio(sampling_rate=16_000))
+    print("采样率调整完成")
 
-    print("Preprocessing the dataset...")
-    # Try removing `num_proc=` if you encounter any errors while running this part
-    common_voice_train = common_voice_train.map(
+    # 预处理数据集
+    print("预处理数据集...")
+    train = train.map(
         prepare_dataset_ipa,
-        remove_columns=common_voice_train.column_names,
+        remove_columns=train.column_names,
         num_proc=args.num_proc
     )
-    common_voice_valid = common_voice_valid.map(
+    valid = valid.map(
         prepare_dataset_ipa,
-        remove_columns=common_voice_test.column_names,
+        remove_columns=valid.column_names,
         num_proc=args.num_proc
     )
-    print("Removing audio files longer than 6 secs...")
-    common_voice_train = remove_long_data(common_voice_train)
-    common_voice_valid = remove_long_data(common_voice_valid)
-    print("Dataset lengths to be trained and tested:")
-    print("Train:", len(common_voice_train))
-    print("Valid:", len(common_voice_valid))
-    print("Preprocessing done")
-
-    print("Creating the data collator")
-    data_collator = DataCollatorCTCWithPadding(processor=processor_ipa, padding=True)
-    print("Data collator created")
     
-    # Model
-    print("Defining the model...")
+    # 移除超过6秒的音频文件
+    print("移除超过6秒的音频文件...")
+    train = remove_long_data(train)
+    valid = remove_long_data(valid)
+    print("要训练和测试的数据集大小:")
+    print("训练集:", len(train))
+    print("验证集:", len(valid))
+    print("预处理完成")
+
+    # 创建数据收集器
+    print("创建数据收集器")
+    data_collator = DataCollatorCTCWithPadding(processor=processor_ipa, padding=True)
+    print("数据收集器已创建")
+    
+    # 定义模型
+    print("定义模型...")
     model = Wav2Vec2ForCTC.from_pretrained(
         "facebook/wav2vec2-large-xlsr-53",
         attention_dropout=0.1,
@@ -440,18 +293,20 @@ if __name__ == "__main__":
         pad_token_id=processor_ipa.tokenizer.pad_token_id,
         vocab_size=len(processor_ipa.tokenizer)
         )
-    print("Model defined")
+    print("模型已定义")
 
-    # Freeze the feature extractor so that it won't be changed by the fine-tuning
-    print("Freezing the feature extractor...") 
+    # 冻结特征提取器，使其在微调过程中不会更改
+    print("冻结特征提取器...") 
     model.freeze_feature_extractor()
-    print("Feature extractor frozen")
+    print("特征提取器已冻结")
 
-    output_dir = "./wav2vec2-large-xlsr-{}-ipa".format("".join(lgx))
+    # 设置输出目录
+    output_dir = "./wav2vec2-large-xlsr-zh-ipa"
     if suffix:
         output_dir += suffix
-    # Training
-    print("Beginning the training...") 
+        
+    # 开始训练
+    print("开始训练...") 
     training_args = TrainingArguments(
         output_dir=output_dir,
         group_by_length=True,
@@ -472,8 +327,8 @@ if __name__ == "__main__":
         model=model,
         data_collator=data_collator,
         args=training_args,
-        train_dataset=common_voice_train,
-        eval_dataset=common_voice_valid,
+        train_dataset=train,
+        eval_dataset=valid,
         tokenizer=processor_ipa.feature_extractor,
         )
 
@@ -481,4 +336,4 @@ if __name__ == "__main__":
     trainer.evaluate()
     trainer.save_state()
     trainer.save_model()
-    # trainer.push_to_hub(repo_name="wav2vec2-ipa")
+    # trainer.push_to_hub(repo_name="wav2vec2-ipa-zh")

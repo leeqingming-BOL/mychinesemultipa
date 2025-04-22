@@ -55,9 +55,9 @@ if __name__ == "__main__":
     
     print("正在加载中文数据集...")
     try:
-        train = load_dataset("mozilla-foundation/common_voice_3_0", "zh-CN",
+        train = load_dataset("mozilla-foundation/common_voice_11_0", "zh-CN",
                             split="train").take(10)
-        valid = load_dataset("mozilla-foundation/common_voice_3_0", "zh-CN",
+        valid = load_dataset("mozilla-foundation/common_voice_11_0", "zh-CN",
                             split="validation").take(2)
         
         print(f"成功加载中文数据集，训练集大小: {len(train)}，验证集大小: {len(valid)}")

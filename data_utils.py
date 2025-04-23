@@ -1,7 +1,9 @@
-from datasets import load_dataset, Dataset
+from datasets import load_dataset, Dataset, Audio
 from chinese_to_ipa import Chinese2IPA
 import random
 import re
+import pandas as pd
+import os
 
 def selection(dataset, selectsize: int):
     """
@@ -62,7 +64,7 @@ class Preprocessors:
     """
     
     @classmethod
-    def chinese(cls, train_samples, test_samples, quality_filter=False):
+    def chinese(cls, train_samples, test_samples, quality_filter=False, data_dir="zh-CN"):
         """
         处理中文数据集
         
@@ -70,14 +72,38 @@ class Preprocessors:
         train_samples: 训练集样本数量
         test_samples: 测试集样本数量
         quality_filter: 是否过滤低质量样本
+        data_dir: 本地数据集目录路径
         
         返回:
         训练集和验证集
         """
-        # 加载数据集
-        print("加载中文数据集...")
-        zh_train = load_dataset("mozilla-foundation/common_voice_11_0", "zh-CN", split="train")
-        zh_test = load_dataset("mozilla-foundation/common_voice_11_0", "zh-CN", split="validation")
+        # 加载本地数据集
+        print("从本地加载中文数据集...")
+        
+        # 构建完整路径
+        train_file = os.path.join(data_dir, "train.tsv")
+        test_file = os.path.join(data_dir, "dev.tsv")  # dev作为验证集
+        clips_dir = os.path.join(data_dir, "clips")
+        
+        # 检查文件是否存在
+        if not (os.path.exists(train_file) and os.path.exists(test_file)):
+            raise FileNotFoundError(f"未找到所需的数据文件。请确保{train_file}和{test_file}存在。")
+        
+        # 从TSV文件加载数据
+        train_df = pd.read_csv(train_file, sep='\t')
+        test_df = pd.read_csv(test_file, sep='\t')
+        
+        # 添加音频文件路径
+        train_df['audio'] = train_df['path'].apply(lambda x: os.path.join(clips_dir, x))
+        test_df['audio'] = test_df['path'].apply(lambda x: os.path.join(clips_dir, x))
+        
+        # 将DataFrame转换为Dataset
+        zh_train = Dataset.from_pandas(train_df)
+        zh_test = Dataset.from_pandas(test_df)
+        
+        # 设置音频列
+        zh_train = zh_train.cast_column("audio", Audio(sampling_rate=16000))
+        zh_test = zh_test.cast_column("audio", Audio(sampling_rate=16000))
         
         # 过滤低质量样本
         if quality_filter:

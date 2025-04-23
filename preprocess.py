@@ -21,6 +21,8 @@ parser.add_argument("--clear_cache", action="store_true",
                     help="如果要在加载后清除数据集缓存以防止内存崩溃，请使用此选项。")
 parser.add_argument("--cache_dir", type=str,
                     help="如果选择清除缓存，请指定缓存目录的路径。")
+parser.add_argument("--data_dir", type=str, default="zh-CN",
+                    help="指定本地数据集的目录路径。")
 args = parser.parse_args()
 if args.clear_cache and args.cache_dir is None:
     print("警告：启用了清除缓存但未指定缓存目录路径。")
@@ -53,12 +55,23 @@ if __name__ == "__main__":
     
     start = time.time()
     
-    print("正在加载中文数据集...")
+    print("正在从本地加载中文数据集...")
     try:
-        train = load_dataset("mozilla-foundation/common_voice_11_0", "zh-CN",
-                            split="train",streaming=True).take(10)
-        valid = load_dataset("mozilla-foundation/common_voice_11_0", "zh-CN",
-                            split="validation",streaming=True).take(2)
+        # 构建完整路径
+        train_file = os.path.join(args.data_dir, "train.tsv")
+        valid_file = os.path.join(args.data_dir, "dev.tsv")  # dev作为验证集
+        
+        # 检查文件是否存在
+        if not (os.path.exists(train_file) and os.path.exists(valid_file)):
+            raise FileNotFoundError(f"未找到所需的数据文件。请确保{train_file}和{valid_file}存在。")
+        
+        # 从TSV文件加载数据
+        train_df = pd.read_csv(train_file, sep='\t').head(10)  # 取前10个样本
+        valid_df = pd.read_csv(valid_file, sep='\t').head(2)   # 取前2个样本
+        
+        # 将DataFrame转换为Dataset
+        train = Dataset.from_pandas(train_df)
+        valid = Dataset.from_pandas(valid_df)
         
         print(f"成功加载中文数据集，训练集大小: {len(train)}，验证集大小: {len(valid)}")
     except Exception as e:

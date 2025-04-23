@@ -1,5 +1,5 @@
 from datasets import load_dataset, Dataset, Audio
-from chinese_to_ipa import Chinese2IPA
+from converter.chinese_to_ipa import Chinese2IPA
 import random
 import re
 import pandas as pd

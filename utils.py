@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import evaluate
 from transformers import Wav2Vec2CTCTokenizer
 
 # df = pd.read_csv("features.csv", index_col=0)
@@ -193,13 +192,7 @@ def compute_all_metrics(pred: str, gold: str, df) -> dict:
     ld = levenshteinDistanceDP(pred, gold)
 
     # Character Error Rate
-    cer = ld / len(gold)
-
-    # CER by the evaluation library
-    cer_evaluator = evaluate.load("cer")
-    predictions = [pred] # arguments must be of list type
-    references = [gold]
-    cer_eval_score = cer_evaluator.compute(predictions=predictions, references=references)
+    cer = ld / len(gold) if len(gold) > 0 else 0
 
     # Phoneme Error Rate
     df_pred = preprocessing_combine(pred, df)
@@ -210,12 +203,11 @@ def compute_all_metrics(pred: str, gold: str, df) -> dict:
     lphd = LPhD_combined(df_pred, df_gold)
 
     # Feature-weighted Phone Error Rate based on LPhD
-    fper = lphd / df_gold.shape[0]
+    fper = lphd / df_gold.shape[0] if df_gold.shape[0] > 0 else 0
     # shape[0] gives the length of the gold transcription
 
     output = {"Levenshtein Distance": ld,
               "Character Error Rate": cer,
-              "Character Error Rate (evaluate)": cer_eval_score,
               "Phoneme Error Rate": per,
               "Levenshtein Phone Distance": lphd,
               "Feature-weighted Phone Error Rate": fper}

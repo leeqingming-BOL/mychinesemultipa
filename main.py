@@ -158,14 +158,14 @@ if __name__ == "__main__":
     
     # 移除不必要的列
     print("移除不必要的列...")
-    train = train.remove_columns([
+    train = train.remove_columns([col for col in [
         "accent", "age", "client_id", "down_votes", "gender", "locale", "segment", "up_votes",
-        "speaker_id", "chapter_id", "id" #for librispeech
-        ])
-    valid = valid.remove_columns([
+        "speaker_id", "chapter_id", "id"
+        ] if col in train.column_names])
+    valid = valid.remove_columns([col for col in [
         "accent", "age", "client_id", "down_votes", "gender", "locale", "segment", "up_votes",
-        "speaker_id", "chapter_id", "id" #for librispeech
-        ])
+        "speaker_id", "chapter_id", "id"
+        ] if col in valid.column_names])
     print("不必要的列已移除。数据预览:")
     print(train[0])
     

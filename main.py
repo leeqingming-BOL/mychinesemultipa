@@ -312,7 +312,7 @@ if __name__ == "__main__":
         group_by_length=True,
         per_device_train_batch_size=4,
         gradient_accumulation_steps=2,
-        evaluation_strategy="steps",
+        eval_strategy="steps",
         num_train_epochs=args.num_train_epochs,
         fp16=True,
         save_steps=100,

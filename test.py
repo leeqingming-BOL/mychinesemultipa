@@ -41,7 +41,7 @@ model.eval()
 # 2. 准备测试数据
 from data_utils import Preprocessors
 print("正在加载测试数据...")
-_, test_dataset = Preprocessors.chinese(1000, 200, quality_filter=True)  # 调整测试样本数量
+_, test_dataset = Preprocessors.chinese(10, 2, quality_filter=True)  # 调整测试样本数量
 test_dataset = test_dataset.cast_column("audio", Audio(sampling_rate=16000))
 print(f"加载了 {len(test_dataset)} 个测试样本")
 

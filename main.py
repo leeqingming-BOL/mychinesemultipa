@@ -96,7 +96,7 @@ def remove_long_data(dataset, max_seconds=6):
     # 已重采样到16khz，移除大于max_seconds的数据
     maxLength = max_seconds * 16000 
     dftest = dftest[dftest['len'] < maxLength]
-    dftest = dftest.drop('len', 1)
+    dftest = dftest.drop(columns=['len'])
     dataset = dataset.from_pandas(dftest)
     del dftest
     return dataset

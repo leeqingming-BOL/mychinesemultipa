@@ -3,3 +3,6 @@ venv/
 env/
 *.egg-info/
 *.egg
+
+# 忽略zh-CN文件夹
+zh-CN/

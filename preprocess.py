@@ -66,8 +66,8 @@ if __name__ == "__main__":
             raise FileNotFoundError(f"未找到所需的数据文件。请确保{train_file}和{valid_file}存在。")
         
         # 从TSV文件加载数据
-        train_df = pd.read_csv(train_file, sep='\t').head(10)  # 取前10个样本
-        valid_df = pd.read_csv(valid_file, sep='\t').head(2)   # 取前2个样本
+        train_df = pd.read_csv(train_file, sep='\t') # 取前x个样本
+        valid_df = pd.read_csv(valid_file, sep='\t') # 取前x个样本
         
         # 将DataFrame转换为Dataset
         train = Dataset.from_pandas(train_df)

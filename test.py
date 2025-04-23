@@ -7,7 +7,7 @@ from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC, Wav2Vec2CTCTokenizer
 import utils
 
 # 1. 加载训练好的模型和处理器
-model_path = "wav2vec2-large-xlsr-zh-ipa-zh-ipa1000"  # 模型路径
+model_path = "wav2vec2-large-xlsr-zh-ipa-zh-ipa1000/checkpoint-10"  # 模型路径
 
 # 检查模型目录是否包含tokenizer文件
 if not os.path.exists(os.path.join(model_path, "vocab.json")):

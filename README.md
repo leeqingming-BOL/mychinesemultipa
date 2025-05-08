@@ -166,5 +166,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- We thank the Prof. Benyou WANG and TAs of the CSC5051 Natural Language Processing course at CUHK-SZ
+- We thank the [Prof. Benyou WANG](https://wabyking.github.io/old.html) and [TAs of the CSC5051 Natural Language Processing course at CUHK-SZ](https://nlp-course-cuhksz.github.io/)
 - This research is inspired by the universal automatic phonetic transcription work by Taguchi et al. (2023)
